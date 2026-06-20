@@ -9,6 +9,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
     envVars:
+      - key: HOST           # クラウドでは全インターフェイスに公開（これが無いと外部から繋がらない）
+        value: "0.0.0.0"
       - key: NO_BROWSER     # サーバー側でブラウザを開こうとしない
         value: "1"
       - key: APP_PIN        # 公開URLを開くためのPIN。Render画面で自分だけの値を設定する
