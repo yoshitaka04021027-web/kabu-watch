@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2f6bff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="日本株ウォッチ">
+  <meta name="format-detection" content="telephone=no">
+  <title>日本株ウォッチ｜毎日の株チェック</title>
+  <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📈&lt;/text&gt;&lt;/svg&gt;">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="logo"><i class="ti ti-chart-candle"></i></span>
+        <span>日本株ウォッチ<small>毎日チェックする、やさしい株分析</small></span>
+      </div>
+      <div class="ticker" id="ticker"></div>
+      <div class="right">
+        <span class="updated" id="updated"></span>
+        <button class="btn" id="refreshBtn" type="button" aria-label="表示中のデータを更新"><i class="ti ti-refresh"></i><span>更新</span></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="disclaimer">
+      <i class="ti ti-info-circle"></i>
+      <div><b>はじめにお読みください：</b>本アプリは株のテクニカル指標をもとにした<b>情報提供・学習</b>のためのツールです。
+      表示される「注目候補」「売却の目安」は将来の値上がり・値下がりを保証するものではなく、<b>投資勧誘・投資助言ではありません</b>。
+      最終的な投資判断はご自身の責任で行ってください。</div>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="主要メニュー">
+      <button class="tab active" data-tab="reco" type="button" role="tab" aria-selected="true" aria-controls="panel-reco"><i class="ti ti-sparkles"></i><span>注目候補</span></button>
+      <button class="tab" data-tab="news" type="button" role="tab" aria-selected="false" aria-controls="panel-news"><i class="ti ti-news"></i><span>ニュース</span></button>
+      <button class="tab" data-tab="port" type="button" role="tab" aria-selected="false" aria-controls="panel-port"><i class="ti ti-briefcase"></i><span>マイ株</span></button>
+      <button class="tab" data-tab="search" type="button" role="tab" aria-selected="false" aria-controls="panel-search"><i class="ti ti-search"></i><span>探す</span></button>
+      <button class="tab" data-tab="learn" type="button" role="tab" aria-selected="false" aria-controls="panel-learn"><i class="ti ti-book"></i><span>用語</span></button>
+    </nav>
+
+    <!-- 注目候補 -->
+    <section class="panel active" id="panel-reco" role="tabpanel">
+      <div class="section-head">
+        <div>
+          <h2>注目候補</h2>
+          <p>ウォッチリストの銘柄を点数化し、スコアの高い順に表示します。</p>
+        </div>
+        <div class="reco-controls">
+          <div class="segmented" id="horizonSeg">
+            <button class="seg active" data-h="short">短期<small>数日〜2,3週間</small></button>
+            <button class="seg" data-h="mid">中期<small>1〜6か月</small></button>
+            <button class="seg" data-h="long">長期<small>半年〜数年</small></button>
+          </div>
+          <div class="filters">
+            <label>表示<select id="recoTop"><option value="6">6件</option><option value="12" selected>12件</option><option value="24">24件</option><option value="50">最大50件</option></select></label>
+            <label>業種<select id="recoSector"><option value="">すべて</option></select></label>
+            <label>値動き<select id="recoRisk"><option value="">すべて</option><option value="stable">安定重視</option><option value="active">値動き大きめ</option></select></label>
+          </div>
+        </div>
+      </div>
+      <div id="recoArea" aria-live="polite"></div>
+    </section>
+
+    <!-- ニュース -->
+    <section class="panel" id="panel-news" role="tabpanel">
+      <div class="section-head">
+        <div>
+          <h2>マーケットニュース</h2>
+          <p>日本株に影響しそうな最新ニュース。「💡なぜ重要？」で初心者向けに値動きとの関係を解説します。</p>
+        </div>
+        <span class="updated" id="newsUpdated"></span>
+      </div>
+      <div class="news-cats" id="newsCats"></div>
+      <div id="newsArea" aria-live="polite"></div>
+    </section>
+
+    <!-- ポートフォリオ -->
+    <section class="panel" id="panel-port" role="tabpanel">
+      <div class="section-head">
+        <div>
+          <h2>マイ株（保有銘柄）</h2>
+          <p>買った株を登録すると、毎日の株価から「売り時のサイン」を初心者向けに解説します。</p>
+        </div>
+      </div>
+      <div class="summary" id="pfSummary"></div>
+      <div class="form-card">
+        <h3><i class="ti ti-plus"></i> 保有銘柄を登録する</h3>
+        <div class="form-grid">
+          <div class="field">
+            <label>銘柄コード または 名称</label>
+            <input id="pfCode" list="codeList" placeholder="例：7203 / トヨタ" autocomplete="off">
+            <datalist id="codeList"></datalist>
+            <div class="hint">4桁のコード（例 7203）か会社名で入力</div>
+          </div>
+          <div class="field"><label>株数</label><input id="pfShares" type="number" min="1" placeholder="100"></div>
+          <div class="field"><label>買った値段（1株）</label><input id="pfBuy" type="number" min="0" step="0.1" placeholder="2500"></div>
+          <div class="field"><label>買った日</label><input id="pfDate" type="date"></div>
+          <div class="field"><label>目標株価（任意）</label><input id="pfTarget" type="number" min="0" step="0.1" placeholder="3000"><div class="hint">ここまで上がったら利確の目安</div></div>
+          <div class="field"><label>損切りライン（任意）</label><input id="pfStop" type="number" min="1" max="50" placeholder="8"><div class="hint">買値から何%下げたら売るか（既定8%）</div></div>
+          <div class="field"><label>同じ銘柄がある時</label><select id="pfDuplicate"><option value="merge">平均取得単価にまとめる</option><option value="lot">別ロットで追加</option></select></div>
+          <div class="field wide"><label>メモ（任意）</label><textarea id="pfMemo" rows="3" placeholder="買った理由、決算日、見直しメモなど"></textarea></div>
+        </div>
+        <div class="form-actions">
+          <button class="btn primary" id="pfAdd"><i class="ti ti-circle-plus"></i>登録する</button>
+          <button class="btn ghost" id="pfCancelEdit" style="display:none"><i class="ti ti-x"></i>編集をやめる</button>
+          <span class="hint" id="pfErr" style="color:var(--danger)"></span>
+        </div>
+      </div>
+      <div class="tool-row">
+        <button class="btn sm" id="exportJson"><i class="ti ti-download"></i>バックアップ</button>
+        <button class="btn sm" id="importJson"><i class="ti ti-upload"></i>復元</button>
+        <button class="btn sm" id="exportCsv"><i class="ti ti-file-spreadsheet"></i>CSV</button>
+        <input id="importFile" type="file" accept="application/json,.json" hidden>
+      </div>
+      <div id="pfArea" aria-live="polite"></div>
+    </section>
+
+    <!-- 検索 -->
+    <section class="panel" id="panel-search" role="tabpanel">
+      <div class="section-head"><div><h2>銘柄を探す</h2><p>コードや会社名・業種で検索して、ウォッチリストや保有に追加できます。</p></div></div>
+      <div class="searchbar">
+        <input id="searchInput" placeholder="例：トヨタ / 7203 / 半導体 / 銀行" autocomplete="off">
+        <button class="btn primary" id="searchBtn"><i class="ti ti-search"></i>検索</button>
+      </div>
+      <div id="searchArea" aria-live="polite"></div>
+      <div class="section-head" style="margin-top:24px"><div><h2>ウォッチリスト</h2><p>「注目候補」で分析される銘柄の一覧です。</p></div></div>
+      <div id="watchArea"></div>
+    </section>
+
+    <!-- 学習 -->
+    <section class="panel" id="panel-learn" role="tabpanel">
+      <div class="howto">
+        <h3><i class="ti ti-rocket"></i> このアプリの使い方</h3>
+        <ol>
+          <li><b>注目候補</b>：短期・中期・長期から投資スタイルを選ぶと、勢いやトレンドが良い順に銘柄が並びます。各銘柄の理由を読んで理解を深めましょう。</li>
+          <li><b>ニュース</b>：日本株に影響しそうな最新ニュースを、テーマ別（主要・決算・金利為替・半導体・経済）に表示します。「💡なぜ重要？」で値動きとの関係を解説。チャート（テクニカル）だけでなく、世の中の出来事（ファンダメンタル）も合わせて判断材料にできます。</li>
+          <li><b>マイ株</b>：株を買ったら登録します。毎日株価をチェックして「保有継続／売却検討／損切り検討」を判定し、その理由を解説します。銘柄の「くわしく見る」では関連ニュースも確認できます。</li>
+          <li><b>銘柄を探す</b>：気になる会社を検索して、ウォッチリスト（分析対象）に追加できます。</li>
+          <li>毎朝・毎晩このアプリを開いて<b>「更新」</b>を押せば、最新の株価で再分析します。</li>
+        </ol>
+      </div>
+      <div class="section-head"><div><h2>株の用語をやさしく解説</h2><p>分析で出てくる言葉の意味です。</p></div></div>
+      <div class="gloss" id="glossArea"></div>
+    </section>
+  </main>
+
+  <div class="modal-bg" id="modalBg"><div class="modal" id="modal" role="dialog" aria-modal="true" aria-live="polite"></div></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

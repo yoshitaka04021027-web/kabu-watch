@@ -1,0 +1,8 @@
+# 取得データのキャッシュ・ローカル保存（アップロード不要）
+app/data/
+**/__pycache__/
+*.pyc
+.DS_Store
+.claude/
+.env
+.env.*

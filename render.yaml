@@ -1,0 +1,17 @@
+# Render（https://render.com）に丸ごとデプロイするための設定ファイル。
+# Render で「New +」→「Blueprint」→ このリポジトリを選ぶと、自動でこの設定が読まれます。
+services:
+  - type: web
+    name: jp-stock-watch
+    runtime: python
+    plan: free          # 無料プラン
+    rootDir: app        # app/ フォルダがアプリ本体
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: NO_BROWSER     # サーバー側でブラウザを開こうとしない
+        value: "1"
+      - key: APP_PIN        # 公開URLを開くためのPIN。Render画面で自分だけの値を設定する
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11.9"
