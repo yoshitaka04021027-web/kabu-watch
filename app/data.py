@@ -246,21 +246,28 @@ def _get_fund_session(force=False):
 
 
 def _fund_http_get(url):
-    """crumb/cookie 付きで取得。401/403 なら crumb を取り直して一度だけ再試行。"""
+    """crumb/cookie 付きで取得。401/403 は crumb 取り直し、429 は待機して再試行。"""
     last = None
-    for attempt in range(2):
-        opener, crumb = _get_fund_session(force=(attempt > 0))
+    for attempt in range(3):
+        force_new = isinstance(last, urllib.error.HTTPError) and last.code in (401, 403)
+        opener, crumb = _get_fund_session(force=force_new)
         full = url + ("&" if "?" in url else "?") + "crumb=" + urllib.parse.quote(crumb, safe="")
         try:
             return opener.open(urllib.request.Request(full, headers=_HEADERS), timeout=20).read()
         except urllib.error.HTTPError as e:
             last = e
-            if e.code in (401, 403):
+            if e.code == 429 and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            if e.code in (401, 403) and attempt < 2:
                 continue
             raise
         except Exception as e:
             last = e
-            continue
+            if attempt < 2:
+                time.sleep(0.5)
+                continue
+            raise
     raise last if last else RuntimeError("fundamentals fetch failed")
 
 
@@ -373,9 +380,11 @@ def get_fundamentals(symbol, force=False):
         raise
 
 
-def get_stock(code_or_symbol, range_="2y", force=False):
+def get_stock(code_or_symbol, range_="2y", force=False, with_fundamentals=True):
     """銘柄データを取得。キャッシュが新しければ再利用。
-    取得失敗時はキャッシュがあればそれを返す（古くてもゼロよりマシ）。"""
+    取得失敗時はキャッシュがあればそれを返す（古くてもゼロよりマシ）。
+    with_fundamentals=False のときは財務指標を取りに行かない（一覧の一括取得で
+    Yahoo のレート制限(429)を避けるため、財務は詳細表示のときだけ取得する）。"""
     symbol = stocks.to_symbol(code_or_symbol)
     with _lock_for(symbol):
         cache_suffix = "quote_" + range_
@@ -385,7 +394,7 @@ def get_stock(code_or_symbol, range_="2y", force=False):
             if age < CACHE_TTL and cached.get("close"):
                 cached["_cache"] = "hit"
                 cached["_cache_age_sec"] = age
-                if not cached.get("fundamentals"):
+                if with_fundamentals and not cached.get("fundamentals"):
                     try:
                         cached["fundamentals"] = get_fundamentals(symbol, force=force)
                         _write_cache(symbol, cached, cache_suffix)
@@ -400,11 +409,12 @@ def get_stock(code_or_symbol, range_="2y", force=False):
                 data["name"] = jp
             data["code"] = stocks.to_code(symbol)
             data["sector"] = stocks.sector_of(stocks.to_code(symbol))
-            try:
-                data["fundamentals"] = get_fundamentals(symbol, force=force)
-            except Exception as fe:
-                data["fundamentals"] = {}
-                data["_fundamentals_error"] = str(fe)
+            if with_fundamentals:
+                try:
+                    data["fundamentals"] = get_fundamentals(symbol, force=force)
+                except Exception as fe:
+                    data["fundamentals"] = {}
+                    data["_fundamentals_error"] = str(fe)
             data["data_source"] = "Yahoo Finance chart"
             data["range"] = range_
             _write_cache(symbol, data, cache_suffix)

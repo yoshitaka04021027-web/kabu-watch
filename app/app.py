@@ -103,9 +103,9 @@ def _authorized(auth_header):
 
 # --- 銘柄群をまとめて取得して分析する ---
 
-def _snapshot_for(code, force=False):
+def _snapshot_for(code, force=False, with_fundamentals=True):
     try:
-        stock = data.get_stock(code, force=force)
+        stock = data.get_stock(code, force=force, with_fundamentals=with_fundamentals)
         return analysis.analyze_stock(stock)
     except Exception as e:
         return {"code": stocks.to_code(code), "name": stocks.name_of(stocks.to_code(code)) or code,
@@ -113,7 +113,9 @@ def _snapshot_for(code, force=False):
 
 
 def _snapshots_for(codes, force=False):
-    results = list(_pool.map(lambda c: _snapshot_for(c, force), codes))
+    # 一覧（おすすめ）は財務を取りに行かない＝Yahooのレート制限(429)回避。
+    # 財務は詳細(api_stock)を開いたときだけ取得する。
+    results = list(_pool.map(lambda c: _snapshot_for(c, force, with_fundamentals=False), codes))
     return results
 
 
