@@ -14,6 +14,7 @@ import threading
 import urllib.request
 import urllib.error
 import urllib.parse
+import http.cookiejar
 
 import stocks
 
@@ -210,11 +211,64 @@ def _fmt_large(v):
     return round(v, 1), unit
 
 
+# --- quoteSummary 用の crumb/cookie 認証セッション ---
+# quoteSummary / quote エンドポイントは crumb(トークン)+cookie が必須。
+# 一度取得して使い回し、401/403 のときだけ取り直す。
+_fund_lock = threading.Lock()
+_fund_session = {"opener": None, "crumb": None, "ts": 0}
+_FUND_CRUMB_TTL = 3600
+
+
+def _new_fund_session():
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    for u in ("https://fc.yahoo.com", "https://finance.yahoo.com"):
+        try:
+            opener.open(urllib.request.Request(u, headers=_HEADERS), timeout=15)
+        except Exception:
+            pass
+    crumb = opener.open(urllib.request.Request(
+        "https://query1.finance.yahoo.com/v1/test/getcrumb", headers=_HEADERS),
+        timeout=15).read().decode("utf-8").strip()
+    if not crumb or len(crumb) > 40 or "<" in crumb:
+        raise ValueError("crumb取得失敗")
+    return opener, crumb
+
+
+def _get_fund_session(force=False):
+    with _fund_lock:
+        s = _fund_session
+        if not force and s["opener"] and s["crumb"] and time.time() - s["ts"] < _FUND_CRUMB_TTL:
+            return s["opener"], s["crumb"]
+        opener, crumb = _new_fund_session()
+        s.update(opener=opener, crumb=crumb, ts=time.time())
+        return opener, crumb
+
+
+def _fund_http_get(url):
+    """crumb/cookie 付きで取得。401/403 なら crumb を取り直して一度だけ再試行。"""
+    last = None
+    for attempt in range(2):
+        opener, crumb = _get_fund_session(force=(attempt > 0))
+        full = url + ("&" if "?" in url else "?") + "crumb=" + urllib.parse.quote(crumb, safe="")
+        try:
+            return opener.open(urllib.request.Request(full, headers=_HEADERS), timeout=20).read()
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code in (401, 403):
+                continue
+            raise
+        except Exception as e:
+            last = e
+            continue
+    raise last if last else RuntimeError("fundamentals fetch failed")
+
+
 def fetch_fundamentals(symbol):
     """Yahoo quoteSummary から取れる範囲の簡易ファンダメンタル指標を取得する。"""
     url = _FUND_API.format(symbol=urllib.parse.quote(symbol, safe="^=.-"))
     try:
-        raw = _http_get(url, retries=2)
+        raw = _fund_http_get(url)
     except Exception:
         return fetch_quote_fundamentals(symbol)
     d = json.loads(raw)
@@ -253,7 +307,7 @@ def fetch_fundamentals(symbol):
 def fetch_quote_fundamentals(symbol):
     """quoteSummary が拒否された場合の軽量フォールバック。取れる項目は少ない。"""
     url = _QUOTE_API.format(symbol=urllib.parse.quote(symbol, safe="^=.-"))
-    raw = _http_get(url, retries=2)
+    raw = _fund_http_get(url)
     d = json.loads(raw)
     result = ((d.get("quoteResponse") or {}).get("result") or [None])[0]
     if not result:
