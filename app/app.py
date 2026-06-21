@@ -27,6 +27,7 @@ import threading
 import webbrowser
 import base64
 import hmac
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
@@ -87,18 +88,75 @@ def _int_param(qs, name, default, minimum=None, maximum=None):
     return value
 
 
-def _authorized(auth_header):
-    """APP_PIN が設定されている場合だけ、HTTP Basic 認証でアプリ全体を保護する。"""
+def _expected_token():
+    """APP_PIN から導出する認証Cookieの値（生PINはCookieに置かない）。"""
+    return hmac.new(b"jsw-auth-v1", APP_PIN.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _cookie_value(cookie_header, name):
+    if not cookie_header:
+        return None
+    for part in cookie_header.split(";"):
+        k, _, v = part.strip().partition("=")
+        if k == name:
+            return v
+    return None
+
+
+def _authorized(auth_header, cookie_header=None):
+    """APP_PIN 設定時のみ保護。Cookieログイン（推奨）か Basic 認証（curl等）で許可。
+
+    iOSのホーム画面アプリ(スタンドアロン)では Basic 認証のログイン窓が出せないため、
+    Cookie 方式を主とする。"""
     if not APP_PIN:
         return True
-    if not auth_header or not auth_header.startswith("Basic "):
-        return False
-    try:
-        raw = base64.b64decode(auth_header[6:].strip()).decode("utf-8")
-        user, _, password = raw.partition(":")
-    except Exception:
-        return False
-    return hmac.compare_digest(password, APP_PIN) or hmac.compare_digest(user, APP_PIN)
+    tok = _cookie_value(cookie_header, "jsw_auth")
+    if tok and hmac.compare_digest(tok, _expected_token()):
+        return True
+    if auth_header and auth_header.startswith("Basic "):
+        try:
+            raw = base64.b64decode(auth_header[6:].strip()).decode("utf-8")
+            user, _, password = raw.partition(":")
+            if hmac.compare_digest(password, APP_PIN) or hmac.compare_digest(user, APP_PIN):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+_LOGIN_HTML = """<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6bff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="日本株ウォッチ">
+<title>日本株ウォッチ｜ログイン</title>
+<style>
+ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+   font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",Meiryo,sans-serif;
+   background:#f4f6fa;color:#1a2233;padding:24px}
+ .card{background:#fff;border:1px solid #e4e8f0;border-radius:16px;padding:28px 24px;width:100%;max-width:340px;
+   box-shadow:0 8px 40px rgba(20,30,55,.10);text-align:center}
+ .logo{width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,#2f6bff,#6b4dff);
+   color:#fff;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 14px}
+ h1{font-size:18px;margin:0 0 4px} p{color:#5b6677;font-size:13px;margin:0 0 18px}
+ input{width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border:1px solid #d3d9e6;
+   border-radius:11px;text-align:center;letter-spacing:.1em}
+ input:focus{outline:none;border-color:#2f6bff;box-shadow:0 0 0 3px #eaf1ff}
+ button{width:100%;margin-top:14px;font-size:16px;font-weight:700;padding:12px;border:none;border-radius:11px;
+   background:#2f6bff;color:#fff}
+ .err{background:#fdecec;color:#c0322f;font-size:13px;padding:9px;border-radius:9px;margin-bottom:14px}
+</style></head>
+<body><div class="card">
+ <div class="logo">📈</div>
+ <h1>日本株ウォッチ</h1>
+ <p>PIN（あいことば）を入力してください</p>
+ {{ERR}}
+ <form method="POST" action="/login">
+   <input type="password" name="pin" placeholder="PIN" autocomplete="current-password" autofocus inputmode="text">
+   <button type="submit">開く</button>
+ </form>
+</div></body></html>"""
 
 
 # --- 銘柄群をまとめて取得して分析する ---
@@ -356,19 +414,69 @@ class Handler(BaseHTTPRequestHandler):
         for k, v in SECURITY_HEADERS.items():
             self.send_header(k, v)
 
-    def _require_auth(self):
-        if _authorized(self.headers.get("Authorization")):
+    def _require_auth(self, is_api=False):
+        if _authorized(self.headers.get("Authorization"), self.headers.get("Cookie")):
             return True
-        body = "認証が必要です。".encode("utf-8")
-        self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="JStockWatch"')
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        if is_api:
+            body = json.dumps({"error": "認証が必要です", "login": "/login"},
+                              ensure_ascii=False).encode("utf-8")
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self._send_security_headers()
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            # 画面はログインページへ誘導（ホーム画面アプリでも開ける）
+            self.send_response(302)
+            self.send_header("Location", "/login")
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self._send_security_headers()
+            self.end_headers()
+        return False
+
+    def _serve_login_page(self, head_only=False, error=False):
+        html = _LOGIN_HTML.replace(
+            "{{ERR}}", '<div class="err">PINが違います。もう一度入力してください。</div>' if error else "")
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self._send_security_headers()
         self.end_headers()
-        self.wfile.write(body)
-        return False
+        if not head_only:
+            self.wfile.write(body)
+
+    def _do_login(self):
+        length = 0
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except (TypeError, ValueError):
+            length = 0
+        raw = self.rfile.read(min(length, MAX_BODY)) if length > 0 else b""
+        pin = ""
+        ctype = self.headers.get("Content-Type", "")
+        try:
+            if "application/json" in ctype:
+                pin = (json.loads(raw.decode("utf-8")).get("pin") or "")
+            else:
+                pin = parse_qs(raw.decode("utf-8")).get("pin", [""])[0]
+        except Exception:
+            pin = ""
+        if APP_PIN and hmac.compare_digest(pin.strip(), APP_PIN):
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.send_header("Set-Cookie",
+                             "jsw_auth=%s; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax" % _expected_token())
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self._send_security_headers()
+            self.end_headers()
+        else:
+            self._serve_login_page(error=True)
 
     def _read_json_body(self):
         try:
@@ -385,11 +493,13 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def _handle_get(self, head_only=False):
-        if not self._require_auth():
-            return
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
+        if path == "/login":
+            return self._serve_login_page(head_only=head_only)
+        if not self._require_auth(is_api=path.startswith("/api/")):
+            return
         try:
             if path == "/healthz":
                 if head_only:
@@ -447,10 +557,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- POST ----
     def do_POST(self):
-        if not self._require_auth():
-            return
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/login":
+            return self._do_login()
+        if not self._require_auth(is_api=path.startswith("/api/")):
+            return
         try:
             body = self._read_json_body()
             if path == "/api/portfolio/evaluate":
@@ -476,7 +588,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- PUT ----
     def do_PUT(self):
-        if not self._require_auth():
+        if not self._require_auth(is_api=True):
             return
         parsed = urlparse(self.path)
         path = parsed.path
@@ -500,7 +612,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- DELETE ----
     def do_DELETE(self):
-        if not self._require_auth():
+        if not self._require_auth(is_api=True):
             return
         parsed = urlparse(self.path)
         path = parsed.path

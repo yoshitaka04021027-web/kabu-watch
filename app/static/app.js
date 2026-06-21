@@ -12,6 +12,11 @@ const attr = (v) => esc(JSON.stringify(v));
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
+  if (res.status === 401) {
+    // セッション切れ → ログイン画面へ
+    window.location.href = "/login";
+    throw new Error("認証が必要です");
+  }
   if (!res.ok) {
     let msg = "通信エラー";
     try { msg = (await res.json()).error || msg; } catch (e) {}
