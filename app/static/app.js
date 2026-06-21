@@ -317,6 +317,22 @@ function closeModal() {
   if (openDetail._lastFocus && document.contains(openDetail._lastFocus)) openDetail._lastFocus.focus();
 }
 $("#modalBg").addEventListener("click", e => { if (e.target.id === "modalBg") closeModal(); });
+
+// ホーム画面に追加したアプリ（スタンドアロン表示）では target="_blank" のリンクが
+// 開かないiOSの仕様があるため、外部リンク(ニュース)はアプリ内遷移にして確実に開く。
+// 通常のブラウザでは従来どおり新しいタブで開く。
+const IS_STANDALONE = window.navigator.standalone === true ||
+  (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest("a[data-ext]");
+  if (!a) return;
+  const url = a.getAttribute("href");
+  if (!url || !/^https?:\/\//.test(url)) return;
+  if (IS_STANDALONE) {
+    e.preventDefault();
+    window.location.href = url;  // アプリ内で開く（戻るは画面左端からスワイプ）
+  }
+});
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && $("#modalBg").classList.contains("show")) closeModal();
 });
@@ -801,7 +817,7 @@ function setNewsCat(cat) {
 function newsItem(n) {
   const link = esc(n.link);
   return `<div class="news-item">
-    <a class="nt" href="${link}" target="_blank" rel="noopener noreferrer">${esc(n.title)} <i class="ti ti-external-link"></i></a>
+    <a class="nt" data-ext href="${link}" target="_blank" rel="noopener noreferrer">${esc(n.title)} <i class="ti ti-external-link"></i></a>
     <div class="news-meta">
       <span class="src">${esc(n.source)}</span>
       ${n.relative ? `<span class="when"><i class="ti ti-clock"></i>${esc(n.relative)}</span>` : ""}
@@ -824,7 +840,7 @@ async function loadStockNews(code) {
     }
     el.innerHTML = head + d.items.map(n => `
       <div class="ri">
-        <a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)} <i class="ti ti-external-link" style="font-size:12px"></i></a>
+        <a data-ext href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)} <i class="ti ti-external-link" style="font-size:12px"></i></a>
         <div class="m">${esc(n.source)}${n.relative ? " ・ " + esc(n.relative) : ""}</div>
       </div>`).join("");
   } catch (e) {
