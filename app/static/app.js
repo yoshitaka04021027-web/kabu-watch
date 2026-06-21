@@ -195,7 +195,7 @@ async function loadReco(force) {
         "ti-adjustments-off",
         "条件に合う銘柄がありません",
         "業種や値動きの条件をゆるめると候補が表示されます。",
-        `<button class="btn primary" onclick="resetRecoFilters()"><i class="ti ti-restore"></i>条件をリセット</button>`
+        `<button class="btn primary" data-act="resetReco"><i class="ti ti-restore"></i>条件をリセット</button>`
       );
       return;
     }
@@ -211,7 +211,7 @@ async function loadReco(force) {
       "ti-alert-triangle",
       "分析を取得できませんでした",
       e.message,
-      `<button class="btn primary" onclick="loadReco()"><i class="ti ti-refresh"></i>再試行</button>`
+      `<button class="btn primary" data-act="reloadReco"><i class="ti ti-refresh"></i>再試行</button>`
     );
   } finally {
     setBusy(area, false);
@@ -275,8 +275,8 @@ function recoCard(it, i) {
       ${reasons.map(reasonRow).join("") || '<div class="sub" style="color:var(--text-3)">目立ったシグナルはありません</div>'}
     </div>
     <div class="card-foot">
-      <button onclick='openDetail(${attr(it.code)})'><i class="ti ti-zoom-in"></i>くわしく見る</button>
-      <button onclick='quickAdd(${attr(it.code)}, ${attr(it.name)})'><i class="ti ti-briefcase"></i>マイ株に登録</button>
+      <button data-act="detail" data-code="${esc(it.code)}"><i class="ti ti-zoom-in"></i>くわしく見る</button>
+      <button data-act="quickadd" data-code="${esc(it.code)}" data-name="${esc(it.name)}"><i class="ti ti-briefcase"></i>マイ株に登録</button>
     </div>
   </div>`;
 }
@@ -309,7 +309,7 @@ async function openDetail(code) {
     if (close) close.focus();
     if (!s.insufficient) loadStockNews(s.code);
   } catch (e) {
-    m.innerHTML = `<div class="modal-head"><h3>エラー</h3><button class="btn ghost" onclick="closeModal()"><i class="ti ti-x"></i></button></div><div class="modal-body">${esc(e.message)}</div>`;
+    m.innerHTML = `<div class="modal-head"><h3>エラー</h3><button class="btn ghost" data-act="closeModal"><i class="ti ti-x"></i></button></div><div class="modal-body">${esc(e.message)}</div>`;
   }
 }
 function closeModal() {
@@ -333,13 +333,39 @@ document.addEventListener("click", e => {
     window.location.href = url;  // アプリ内で開く（戻るは画面左端からスワイプ）
   }
 });
+
+// CSP(script-src 'self')下では HTML内の onclick が動かないため、
+// データ属性＋イベント委譲で全ボタンの操作を受け取る（安全かつCSP準拠）。
+document.addEventListener("click", e => {
+  const el = e.target.closest && e.target.closest("[data-act]");
+  if (!el) return;
+  const d = el.dataset;
+  const fns = {
+    detail: () => openDetail(d.code),
+    quickadd: () => quickAdd(d.code, d.name),
+    watch: () => addWatch(d.code),
+    unwatch: () => delWatch(d.code),
+    delhold: () => delHolding(Number(d.id)),
+    edithold: () => editHolding(Number(d.id)),
+    newscat: () => setNewsCat(d.cat),
+    reloadNews: () => loadNews(true),
+    reloadReco: () => loadReco(),
+    resetReco: () => resetRecoFilters(),
+    closeModal: () => closeModal(),
+    focusPf: () => focusPortfolioForm(),
+    clearSearch: () => clearSearch(),
+    focusSearch: () => focusSearch(),
+  };
+  const fn = fns[d.act];
+  if (typeof fn === "function") fn();
+});
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && $("#modalBg").classList.contains("show")) closeModal();
 });
 
 function detailHtml(s) {
   if (s.insufficient) {
-    return `<div class="modal-head"><h3>${esc(s.name || s.code)}</h3><button class="btn ghost" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    return `<div class="modal-head"><h3>${esc(s.name || s.code)}</h3><button class="btn ghost" data-act="closeModal"><i class="ti ti-x"></i></button></div>
       <div class="modal-body">${emptyState("ti-database-off", "分析に十分なデータがありません", "少し待って更新するか、別の銘柄を確認してください。")}</div>`;
   }
   const ind = s.indicators;
@@ -368,7 +394,7 @@ function detailHtml(s) {
     ["Debt/Equity", numStr(f.debt_to_equity)],
   ];
   return `<div class="modal-head"><h3>${esc(s.name)} <span>${esc(s.code)}</span></h3>
-    <button class="btn ghost" onclick="closeModal()" aria-label="詳細を閉じる"><i class="ti ti-x"></i></button></div>
+    <button class="btn ghost" data-act="closeModal" aria-label="詳細を閉じる"><i class="ti ti-x"></i></button></div>
   <div class="modal-body">
     <div class="detail-jump">
       <a href="#detail-indicators"><i class="ti ti-chart-line"></i>指標</a>
@@ -410,8 +436,8 @@ function detailHtml(s) {
       <div class="sub" style="color:var(--text-3)">読み込み中…</div>
     </div>
     <div class="modal-actions">
-      <button class="btn primary" onclick='quickAdd(${attr(s.code)}, ${attr(s.name)})'><i class="ti ti-briefcase"></i>マイ株に登録</button>
-      <button class="btn" onclick='addWatch(${attr(s.code)})'><i class="ti ti-eye-plus"></i>ウォッチリストに追加</button>
+      <button class="btn primary" data-act="quickadd" data-code="${esc(s.code)}" data-name="${esc(s.name)}"><i class="ti ti-briefcase"></i>マイ株に登録</button>
+      <button class="btn" data-act="watch" data-code="${esc(s.code)}"><i class="ti ti-eye-plus"></i>ウォッチリストに追加</button>
     </div>
   </div>`;
 }
@@ -426,7 +452,7 @@ async function loadPortfolio(force) {
       "ti-briefcase",
       "保有銘柄はまだありません",
       "買った株を登録すると、損益と売却検討サインを毎日チェックできます。",
-      `<button class="btn primary" onclick="focusPortfolioForm()"><i class="ti ti-circle-plus"></i>保有銘柄を登録</button>`
+      `<button class="btn primary" data-act="focusPf"><i class="ti ti-circle-plus"></i>保有銘柄を登録</button>`
     );
     return;
   }
@@ -469,8 +495,8 @@ function holdingHtml(h) {
     return `<div class="holding"><div class="holding-head"><div class="hn"><div class="nm">${esc(h.name || h.code)}</div>
       <div class="meta">${esc(h.code)}</div></div><span class="verdict t-info">${esc(h.verdict)}</span>
       <div class="holding-actions">
-        <button class="btn ghost sm" title="編集" aria-label="${esc(h.name || h.code)}を編集" onclick="editHolding(${h.id})"><i class="ti ti-pencil"></i></button>
-        <button class="btn ghost sm" title="削除" aria-label="${esc(h.name || h.code)}を削除" onclick="delHolding(${h.id})"><i class="ti ti-trash"></i></button>
+        <button class="btn ghost sm" title="編集" aria-label="${esc(h.name || h.code)}を編集" data-act="edithold" data-id="${h.id}"><i class="ti ti-pencil"></i></button>
+        <button class="btn ghost sm" title="削除" aria-label="${esc(h.name || h.code)}を削除" data-act="delhold" data-id="${h.id}"><i class="ti ti-trash"></i></button>
       </div></div>${h.memo ? `<div class="holding-body"><div class="memo"><b>メモ：</b>${esc(h.memo)}</div></div>` : ""}</div>`;
   }
   const plc = changeClass(h.pl_pct);
@@ -486,8 +512,8 @@ function holdingHtml(h) {
         <div class="small ${plc}">${h.pl_total == null ? "" : (h.pl_total >= 0 ? "+" : "") + yen(h.pl_total) + "円"}　現在 ${yen1(h.price)}円</div>
       </div>
       <div class="holding-actions">
-        <button class="btn ghost sm" title="編集" aria-label="${esc(h.name)}を編集" onclick="editHolding(${h.id})"><i class="ti ti-pencil"></i></button>
-        <button class="btn ghost sm" title="削除" aria-label="${esc(h.name)}を削除" onclick="delHolding(${h.id})"><i class="ti ti-trash"></i></button>
+        <button class="btn ghost sm" title="編集" aria-label="${esc(h.name)}を編集" data-act="edithold" data-id="${h.id}"><i class="ti ti-pencil"></i></button>
+        <button class="btn ghost sm" title="削除" aria-label="${esc(h.name)}を削除" data-act="delhold" data-id="${h.id}"><i class="ti ti-trash"></i></button>
       </div>
     </div>
     <div class="holding-body">
@@ -707,7 +733,7 @@ async function doSearch() {
         "ti-search-off",
         "該当する銘柄が見つかりません",
         "4桁の証券コード、会社名の一部、業種名でも検索できます。",
-        `<button class="btn" onclick="clearSearch()"><i class="ti ti-x"></i>検索をクリア</button>`
+        `<button class="btn" data-act="clearSearch"><i class="ti ti-x"></i>検索をクリア</button>`
       );
       return;
     }
@@ -728,9 +754,9 @@ function clearSearch() {
 function resultRow(r) {
   return `<div class="result-row">
     <div class="rn"><div class="nm">${esc(r.name)}</div><div class="meta">${esc(r.code)}・${esc(r.sector)}</div></div>
-    <button class="btn sm" onclick='openDetail(${attr(r.code)})'><i class="ti ti-zoom-in"></i>分析</button>
-    <button class="btn sm" onclick='addWatch(${attr(r.code)})'><i class="ti ti-eye-plus"></i>ウォッチ</button>
-    <button class="btn sm primary" onclick='quickAdd(${attr(r.code)}, ${attr(r.name)})'><i class="ti ti-briefcase"></i>保有登録</button>
+    <button class="btn sm" data-act="detail" data-code="${esc(r.code)}"><i class="ti ti-zoom-in"></i>分析</button>
+    <button class="btn sm" data-act="watch" data-code="${esc(r.code)}"><i class="ti ti-eye-plus"></i>ウォッチ</button>
+    <button class="btn sm primary" data-act="quickadd" data-code="${esc(r.code)}" data-name="${esc(r.name)}"><i class="ti ti-briefcase"></i>保有登録</button>
   </div>`;
 }
 
@@ -754,14 +780,14 @@ function loadWatchlist() {
       "ti-eye-off",
       "ウォッチリストは空です",
       "気になる銘柄を追加すると、注目候補で分析されます。",
-      `<button class="btn primary" onclick="focusSearch()"><i class="ti ti-search"></i>銘柄を探す</button>`
+      `<button class="btn primary" data-act="focusSearch"><i class="ti ti-search"></i>銘柄を探す</button>`
     );
     return;
   }
   area.innerHTML = items.map(w => `<div class="result-row">
     <div class="rn"><div class="nm">${esc(w.name)}</div><div class="meta">${esc(w.code)}・${esc(w.sector || "—")}</div></div>
-    <button class="btn sm" onclick='openDetail(${attr(w.code)})'><i class="ti ti-zoom-in"></i>分析</button>
-    <button class="btn sm ghost" onclick='delWatch(${attr(w.code)})'><i class="ti ti-x"></i>外す</button>
+    <button class="btn sm" data-act="detail" data-code="${esc(w.code)}"><i class="ti ti-zoom-in"></i>分析</button>
+    <button class="btn sm ghost" data-act="unwatch" data-code="${esc(w.code)}"><i class="ti ti-x"></i>外す</button>
   </div>`).join("");
 }
 
@@ -786,7 +812,7 @@ async function loadNews(force) {
     const d = await api(`/api/news?cat=${encodeURIComponent(curNewsCat)}${force ? "&force=1" : ""}`);
     if (d.categories) {
       $("#newsCats").innerHTML = d.categories.map(c =>
-        `<button class="news-cat ${c.key === curNewsCat ? "active" : ""}" onclick="setNewsCat(${attr(c.key)})">${esc(c.label)}</button>`).join("");
+        `<button class="news-cat ${c.key === curNewsCat ? "active" : ""}" data-act="newscat" data-cat="${esc(c.key)}">${esc(c.label)}</button>`).join("");
     }
     $("#newsUpdated").textContent = d.updated ? "更新 " + d.updated : "";
     if (!d.items || !d.items.length) {
@@ -794,7 +820,7 @@ async function loadNews(force) {
         "ti-news-off",
         "ニュースを取得できませんでした",
         "少し待ってから再試行してください。",
-        `<button class="btn primary" onclick="loadNews(true)"><i class="ti ti-refresh"></i>再試行</button>`
+        `<button class="btn primary" data-act="reloadNews"><i class="ti ti-refresh"></i>再試行</button>`
       );
       return;
     }
@@ -804,7 +830,7 @@ async function loadNews(force) {
       "ti-alert-triangle",
       "ニュースを取得できませんでした",
       e.message,
-      `<button class="btn primary" onclick="loadNews(true)"><i class="ti ti-refresh"></i>再試行</button>`
+      `<button class="btn primary" data-act="reloadNews"><i class="ti ti-refresh"></i>再試行</button>`
     );
   }
 }
