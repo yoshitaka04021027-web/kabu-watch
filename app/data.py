@@ -40,6 +40,31 @@ _FUND_API = (
 _QUOTE_API = "https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
 FUNDAMENTAL_TTL = 12 * 60 * 60
 
+# 同梱の財務データ（種）。Yahoo の財務APIはデータセンターIP(Render等)から 429 で
+# 弾かれるため、ローカル(家庭回線)で取得して同梱したものをフォールバックに使う。
+_SEED_PATH = os.path.join(BASE_DIR, "fundamentals_seed.json")
+
+
+def _load_seed():
+    try:
+        with open(_SEED_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+_SEED = _load_seed()
+
+
+def _seed_get(symbol):
+    d = _SEED.get(symbol)
+    if not d:
+        return None
+    out = dict(d)
+    out["_cache"] = "seed"
+    out["source"] = "Yahoo Finance（同梱データ）"
+    return out
+
 # 同一シンボルの同時取得を防ぐロック群
 _locks = {}
 _locks_guard = threading.Lock()
@@ -377,6 +402,9 @@ def get_fundamentals(symbol, force=False):
             cached["_cache"] = "stale"
             cached["_error"] = str(e)
             return cached
+        seed = _seed_get(symbol)  # ライブ取得失敗時は同梱データで表示
+        if seed:
+            return seed
         raise
 
 
@@ -394,12 +422,17 @@ def get_stock(code_or_symbol, range_="2y", force=False, with_fundamentals=True):
             if age < CACHE_TTL and cached.get("close"):
                 cached["_cache"] = "hit"
                 cached["_cache_age_sec"] = age
-                if with_fundamentals and not cached.get("fundamentals"):
-                    try:
-                        cached["fundamentals"] = get_fundamentals(symbol, force=force)
-                        _write_cache(symbol, cached, cache_suffix)
-                    except Exception as fe:
-                        cached["_fundamentals_error"] = str(fe)
+                if not cached.get("fundamentals"):
+                    if with_fundamentals:
+                        try:
+                            cached["fundamentals"] = get_fundamentals(symbol, force=force)
+                            _write_cache(symbol, cached, cache_suffix)
+                        except Exception as fe:
+                            cached["fundamentals"] = _seed_get(symbol) or {}
+                            if not cached["fundamentals"]:
+                                cached["_fundamentals_error"] = str(fe)
+                    else:
+                        cached["fundamentals"] = _seed_get(symbol) or {}
                 return cached
         try:
             data = fetch_chart(symbol, range_=range_)
@@ -413,8 +446,12 @@ def get_stock(code_or_symbol, range_="2y", force=False, with_fundamentals=True):
                 try:
                     data["fundamentals"] = get_fundamentals(symbol, force=force)
                 except Exception as fe:
-                    data["fundamentals"] = {}
-                    data["_fundamentals_error"] = str(fe)
+                    data["fundamentals"] = _seed_get(symbol) or {}
+                    if not data["fundamentals"]:
+                        data["_fundamentals_error"] = str(fe)
+            else:
+                # 一覧は同梱データ（即時・ネット不要）を載せる
+                data["fundamentals"] = _seed_get(symbol) or {}
             data["data_source"] = "Yahoo Finance chart"
             data["range"] = range_
             _write_cache(symbol, data, cache_suffix)
